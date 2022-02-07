@@ -1,0 +1,5 @@
+---
+# Vars for confugration hosts
+
+httpuser: "www-new-user"
+domain: "domain.com"

@@ -1,0 +1,102 @@
+---
+- hosts: all
+  gather_facts: yes
+
+
+
+  tasks:
+    - name: include variables
+      include_vars:
+        file: vars
+    - name: Installing apache2 package
+      apt: name=apache2 update_cache=yes state=latest
+    - name: Delete apache2's after-installation page
+      file:
+        state: absent
+        path: /var/www/html/index.html
+    - name: a2dismod autoindex
+      apache2_module:
+        state: absent
+        name: autoindex
+        force: True
+      notify:
+        - restart apache2
+    - name: Delete apache2 documentation config
+      file:
+        state: absent
+        path: /etc/apache2/conf-enabled/apache2-doc.conf
+    - name: enabled mod_rewrite
+      apache2_module:
+        state: present
+        name: rewrite
+      notify:
+        - restart apache2
+    - name: enabled mod_ssl
+      apache2_module:
+        state: present
+        name: ssl
+      notify:
+        - restart apache2
+    - name: Create user
+      user:
+        name: "{{ httpuser }}"
+        state: present
+    - name: create virtual host file
+      template: 
+        src: vhost.conf.j2
+        dest: /etc/apache2/sites-available/vhost.conf
+      notify:
+        - restart apache2
+    - name: adding Directory to apache2.conf
+      blockinfile:
+        path: /etc/apache2/apache2.conf
+        insertafter: "<Directory/>"
+        block: |
+          <Directory /home/{{ httpuser }}/www/>
+                AllowOverride All
+                Require all granted
+          </Directory>
+    - name: a2ensite vhost.conf
+      command: a2ensite vhost.conf
+      notify:
+        - restart apache2
+    - name: Creating user www directry
+      file:
+        path: /home/{{ httpuser }}/www
+        state: directory
+    - name: Changing www-data files own
+      command: chown {{ httpuser }}:{{ httpuser }} /var/cache/apache2/mod_cache_disk
+    - name: Changing www-data files own
+      command: chown {{ httpuser }}:{{ httpuser }} /run/lock/apache2
+    - name: apache2 user_run changing to another user in envvars
+      lineinfile: 
+        dest: /etc/apache2/envvars
+        regexp: '^export APACHE_RUN_USER=www-data'
+        line: "export APACHE_RUN_USER={{ httpuser }}" 
+        state: present
+    - name: apache2 user_run changing to another user in envvars
+      lineinfile: 
+        dest: /etc/apache2/envvars
+        regexp: '^export APACHE_RUN_GROUP=www-data'
+        line: "export APACHE_RUN_GROUP={{ httpuser }}" 
+        state: present
+    - name: apache2 user_run changing to another user
+      lineinfile: 
+        dest: /lib/systemd/system/apache-htcacheclean.service
+        regexp: '^User=www-data'
+        line: "User={{ httpuser }}" 
+        state: present
+    - name: Add security conf
+      template:
+        src: security.conf
+        dest: /etc/apache2/conf-enabled/security.conf
+      notify:
+        - restart apache2
+    - name: systemctl daemon-reload
+      command: systemctl daemon-reload
+    - name: Restart htcachclean service
+      command:  /etc/init.d/apache-htcacheclean restart
+
+  handlers:
+    - name: restart apache2
+      service: name=apache2 state=restarted
